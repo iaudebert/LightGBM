@@ -1,0 +1,88 @@
+name: Build LightGBM portable Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Recuperer LightGBM
+        uses: actions/checkout@v4
+        with:
+          ref: v4.7.0
+          submodules: recursive
+
+      - name: Configurer la compilation
+        shell: cmd
+        run: >
+          cmake -S . -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DBUILD_CLI=ON
+          -DBUILD_STATIC_LIB=ON
+          -DUSE_GPU=OFF
+          -DUSE_CUDA=OFF
+          -DUSE_MPI=OFF
+          -DUSE_OPENMP=OFF
+
+      - name: Compiler LightGBM
+        shell: cmd
+        run: cmake --build build --config Release --target lightgbm
+
+      - name: Rechercher l'executable
+        shell: powershell
+        run: |
+          $exe = Get-ChildItem -Path build -Filter lightgbm.exe -Recurse |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "lightgbm.exe est introuvable"
+          }
+
+          New-Item -ItemType Directory -Path portable -Force
+          Copy-Item $exe.FullName portable\lightgbm.exe
+
+          @"
+          task=train
+          objective=poisson
+          metric=poisson
+          data=train.csv
+          header=true
+          label=Assistances
+          output_model=model.txt
+          learning_rate=0.03
+          num_leaves=31
+          max_depth=8
+          min_data_in_leaf=30
+          num_iterations=1000
+          verbosity=1
+          "@ | Set-Content portable\train.conf -Encoding ASCII
+
+          @"
+          task=predict
+          data=predict.csv
+          header=true
+          input_model=model.txt
+          output_result=predictions.txt
+          verbosity=1
+          "@ | Set-Content portable\predict.conf -Encoding ASCII
+
+          @"
+          @echo off
+          lightgbm.exe config=train.conf
+          pause
+          "@ | Set-Content portable\entrainer.bat -Encoding ASCII
+
+          @"
+          @echo off
+          lightgbm.exe config=predict.conf
+          pause
+          "@ | Set-Content portable\predire.bat -Encoding ASCII
+
+      - name: Publier le dossier portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightGBM-Windows-portable
+          path: portable
