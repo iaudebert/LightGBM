@@ -3,16 +3,22 @@ name: Build LightGBM portable Windows
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-windows:
     runs-on: windows-2022
 
     steps:
-      - name: Recuperer LightGBM
-        uses: actions/checkout@v4
+      - name: Recuperer le depot officiel LightGBM
+        uses: actions/checkout@v5
         with:
+          repository: lightgbm-org/LightGBM
           ref: v4.7.0
           submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Configurer la compilation
         shell: cmd
@@ -31,7 +37,7 @@ jobs:
         shell: cmd
         run: cmake --build build --config Release --target lightgbm
 
-      - name: Rechercher l'executable
+      - name: Creer le dossier portable
         shell: powershell
         run: |
           $exe = Get-ChildItem -Path build -Filter lightgbm.exe -Recurse |
@@ -71,18 +77,28 @@ jobs:
 
           @"
           @echo off
+          cd /d "%~dp0"
           lightgbm.exe config=train.conf
           pause
           "@ | Set-Content portable\entrainer.bat -Encoding ASCII
 
           @"
           @echo off
+          cd /d "%~dp0"
           lightgbm.exe config=predict.conf
           pause
           "@ | Set-Content portable\predire.bat -Encoding ASCII
 
+          & portable\lightgbm.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Le test de lightgbm.exe a echoue avec le code $LASTEXITCODE"
+          }
+
       - name: Publier le dossier portable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: LightGBM-Windows-portable
           path: portable
+          if-no-files-found: error
+          retention-days: 30
